@@ -1,0 +1,143 @@
+site_name: MLflow Secrets Auth
+site_description: Documentation for MLflow Secrets Auth
+site_url: https://hugodscarvalho.github.io/mlflow-secrets-auth/
+repo_url: https://github.com/hugodscarvalho/mlflow-secrets-auth
+repo_name: hugodscarvalho/mlflow-secrets-auth
+use_directory_urls: true
+docs_dir: docs
+
+theme:
+  name: material
+  font:
+    text: Geist
+    code: Geist Mono
+  palette:
+  - media: "(prefers-color-scheme: light)"
+    scheme: default
+    primary: "#FAFAFA" # Off-White
+    accent: "#BCAAA4" # Warm Taupe
+    toggle:
+      icon: material/toggle-switch
+      name: Switch to dark mode
+  - media: "(prefers-color-scheme: dark)"
+    scheme: slate
+    primary: "#333333" # Dark Charcoal
+    accent: "#D7CCC8" # Light Taupe
+    toggle:
+      icon: material/toggle-switch-off-outline
+      name: Switch to system preference
+  features:
+  - announce.dismiss
+  - content.action.edit
+  - content.action.view
+  - content.code.annotate
+  - content.code.copy
+  - content.tabs.link
+  - content.tooltips
+  - header.autohide
+  - navigation.expand
+  - navigation.footer
+  - navigation.indexes
+  - navigation.instant
+  - navigation.path
+  - navigation.prune
+  - navigation.sections
+  - navigation.tabs
+  - navigation.tabs.sticky
+  - navigation.top
+  - navigation.tracking
+  - search.highlight
+  - search.share
+  - search.suggest
+  - toc.follow
+  - toc.integrate
+
+nav:
+- Home:
+  - Index: index.md
+  - Getting Started: getting-started.md
+  - Installation: installation.md
+- Configuration:
+  - Configuration Reference: configuration.md
+  - Command Line Interface: cli.md
+- Concepts:
+  - Architecture: concepts/architecture.md
+  - Security: concepts/security.md
+  - Caching and Retries: concepts/caching-and-retries.md
+- Providers:
+  - HashiCorp Vault: providers/vault.md
+  - AWS Secrets Manager: providers/aws.md
+  - Azure Key Vault: providers/azure.md
+- Help:
+  - Troubleshooting: troubleshooting.md
+  - FAQ: faq.md
+- Code Reference: reference/
+- Release Notes: changelog.md
+plugins:
+- autorefs
+- search
+- gen-files:
+    scripts:
+    - docs/scripts/gen_ref_nav.py
+- literate-nav:
+    nav_file: SUMMARY.md
+- mkdocstrings:
+    handlers:
+      python:
+        paths: [ src ]
+        options:
+          docstring_style: google
+          show_source: true
+          show_root_heading: true
+          heading_level: 2
+          merge_init_into_class: yes
+          show_submodules: yes
+- section-index
+- mike
+
+markdown_extensions:
+- markdown_include.include:
+    base_path: . # CWD (project root)
+    throwException: true
+- admonition
+- def_list
+- footnotes
+- pymdownx.highlight:
+    anchor_linenums: true
+- pymdownx.inlinehilite
+- pymdownx.snippets:
+    check_paths: true
+- pymdownx.magiclink:
+    repo_url_shortener: true
+    repo_url_shorthand: true
+    social_url_shorthand: true
+    social_url_shortener: true
+    normalize_issue_symbols: true
+- pymdownx.tabbed:
+    alternate_style: true
+- toc:
+    # reduced to keep TOC nice under Changelog page
+    toc_depth: 2
+    permalink: true
+- pymdownx.superfences:
+    custom_fences:
+    - name: mermaid
+      class: mermaid
+      format: !!python/name:pymdownx.superfences.fence_code_format ""
+extra_css:
+- stylesheets/extra.css
+
+extra:
+  version:
+    provider: mike
+  generator: false
+  social:
+  - icon: fontawesome/brands/python
+    link: https://pypi.org/project/mlflow-secrets-auth/
+    name: PyPI
+  - icon: fontawesome/solid/scroll
+    link: https://github.com/hugodscarvalho/mlflow-secrets-auth/releases
+    name: Releases
+  - icon: fontawesome/brands/github-alt
+    link: https://github.com/hugodscarvalho/mlflow-secrets-auth
+    name: GitHub
