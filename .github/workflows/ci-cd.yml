@@ -46,7 +46,7 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
-        run: poetry install
+        run: poetry install --all-extras
 
       - name: Start MLflow server
         run: |
