@@ -127,6 +127,7 @@ jobs:
           STATUS=$?
           set -e
 
+          # Check if this is the first commit or if we can't get previous version
           if [ $STATUS -ne 0 ] || [ -z "$PREVIOUS_VERSION" ]; then
             echo "::notice::No previous version found (first release assumed). Proceeding with deployment."
             echo "VERSION_BUMPED=true" >> $GITHUB_ENV
@@ -134,8 +135,15 @@ jobs:
             echo "::notice::Version bumped from $PREVIOUS_VERSION to $CURRENT_VERSION."
             echo "VERSION_BUMPED=true" >> $GITHUB_ENV
           else
-            echo "::warning::No version bump detected. Skipping deployment."
-            echo "VERSION_BUMPED=false" >> $GITHUB_ENV
+            # For initial releases, check if there are any existing tags
+            git fetch --tags
+            if [ $(git tag | wc -l) -eq 0 ]; then
+              echo "::notice::No existing tags found. This appears to be the first release. Proceeding with deployment."
+              echo "VERSION_BUMPED=true" >> $GITHUB_ENV
+            else
+              echo "::warning::No version bump detected. Skipping deployment."
+              echo "VERSION_BUMPED=false" >> $GITHUB_ENV
+            fi
           fi
 
       - name: Check if tag already exists
