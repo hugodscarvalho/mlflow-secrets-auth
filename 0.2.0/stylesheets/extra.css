@@ -1,0 +1,61 @@
+/* Minimalist Modern Theme for mkdocstrings */
+
+:root > * {
+  /* Primary color: soft modern blue */
+  --md-primary-fg-color:        #2563eb;
+  --md-primary-fg-color--light: #60a5fa;
+  --md-primary-fg-color--dark:  #1e40af;
+
+  /* Accent color: subtle purple for highlights */
+  --md-accent-fg-color:         #8b5cf6;
+  --md-accent-fg-color--light:  #c4b5fd;
+  --md-accent-fg-color--dark:   #6d28d9;
+
+  /* Neutral text tones */
+  --md-secondary-fg-color:         #1f2937;
+  --md-secondary-fg-color--light:  #9ca3af;
+  --md-secondary-fg-color--dark:   #111827;
+
+  /* Link color matches primary */
+  --md-link-color:             var(--md-primary-fg-color);
+  --md-link-color--hover:      var(--md-primary-fg-color--dark);
+
+  /* Backgrounds */
+  --md-background-color:       #ffffff;
+  --md-background-color--dark: #0f172a;
+}
+
+/* Geist font import */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@100..900&display=swap');
+
+.geist-regular {
+  font-family: "Geist", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 400;
+  font-style: normal;
+}
+
+.geist-medium {
+  font-family: "Geist", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 500;
+  font-style: normal;
+}
+
+.geist-bold {
+  font-family: "Geist", sans-serif;
+  font-optical-sizing: auto;
+  font-weight: 700;
+  font-style: normal;
+}
+
+/* Apply Geist as the primary font for the documentation */
+:root {
+  --md-text-font: "Geist", sans-serif;
+  --md-code-font: "Geist Mono", "JetBrains Mono", monospace;
+}
+
+body, .md-typeset {
+  font-family: "Geist", sans-serif;
+  font-optical-sizing: auto;
+}
