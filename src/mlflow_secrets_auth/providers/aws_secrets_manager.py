@@ -10,6 +10,29 @@ from mlflow_secrets_auth.base import SecretsBackedAuthProvider
 from mlflow_secrets_auth.config import get_env_int, get_env_var
 from mlflow_secrets_auth.utils import retry_with_jitter, safe_log, validate_ttl
 
+from mlflow_secrets_auth.constants import (
+    PROVIDER_AWS,
+    DEFAULT_TTL_SECONDS,
+    DEFAULT_AUTH_MODE,
+    ENV_AWS_REGION,
+    ENV_AWS_SECRET_ID,
+    ENV_AWS_AUTH_MODE,
+    ENV_AWS_TTL_SEC,
+)
+
+from mlflow_secrets_auth.messages import (
+    ERROR_AWS_BOTO3_MISSING,
+    ERROR_AWS_REGION_MISSING,
+    ERROR_AWS_SECRET_ID_MISSING,
+    ERROR_AWS_CLIENT_CREATION,
+    LOG_AWS_CLIENT_CREATED,
+    LOG_AWS_FETCHING_SECRET,
+    LOG_AWS_SECRET_STRING_SUCCESS,
+    LOG_AWS_SECRET_BINARY_SUCCESS,
+    LOG_AWS_NO_SECRET_DATA,
+    LOG_AWS_FETCH_FAILED,
+)
+
 
 class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
     """Authentication provider using AWS Secrets Manager.
@@ -25,7 +48,7 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
 
     def __init__(self) -> None:
         """Initialize the provider with a default TTL and lazy AWS client."""
-        super().__init__("aws-secrets-manager", default_ttl=300)
+        super().__init__(PROVIDER_AWS, default_ttl=DEFAULT_TTL_SECONDS)
         self._secrets_client: Any | None = None  # boto3 client when available
 
     # Internal client management
@@ -45,31 +68,22 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
             return self._secrets_client
 
         try:
-            import boto3  # type: ignore
+            import boto3  # type: ignore[import-untyped]
         except ImportError as exc:  # pragma: no cover - optional dep path
-            msg = (
-                "boto3 package is required for AWS Secrets Manager support. "
-                "Install with: pip install mlflow-secrets-auth[aws]"
-            )
+            msg = ERROR_AWS_BOTO3_MISSING
             raise ImportError(msg) from exc
 
-        region = get_env_var("AWS_REGION")
+        region = get_env_var(ENV_AWS_REGION)
         if not region:
-            msg = "AWS_REGION environment variable is required"
+            msg = ERROR_AWS_REGION_MISSING
             raise ValueError(msg)
 
         try:
             self._secrets_client = boto3.client("secretsmanager", region_name=region)
-            safe_log(
-                self.logger,
-                logging.DEBUG,
-                "Created AWS Secrets Manager client for region %s",
-                region,
-            )
+            safe_log(self.logger, logging.DEBUG, LOG_AWS_CLIENT_CREATED.format(region=region))
             return self._secrets_client
         except Exception as e:  # pragma: no cover — defensive
-            msg = f"Failed to create AWS Secrets Manager client: {e}"
-            raise ValueError(msg) from e
+            raise ValueError(ERROR_AWS_CLIENT_CREATION.format(error=e)) from e
 
     # SecretsBackedAuthProvider hooks
 
@@ -86,53 +100,34 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
             ImportError: If `boto3` is not installed.
 
         """
-        secret_id = get_env_var("MLFLOW_AWS_SECRET_ID")
+        secret_id = get_env_var(ENV_AWS_SECRET_ID)
         if not secret_id:
-            msg = "MLFLOW_AWS_SECRET_ID environment variable is required"
-            raise ValueError(msg)
+            raise ValueError(ERROR_AWS_SECRET_ID_MISSING)
 
         client = self._get_secrets_client()
 
         def _fetch_from_aws() -> str | None:
-            safe_log(self.logger, logging.DEBUG, "Fetching secret: %s", secret_id)
+            safe_log(self.logger, logging.DEBUG, LOG_AWS_FETCHING_SECRET.format(secret_id=secret_id))
             response = client.get_secret_value(SecretId=secret_id)
 
             if "SecretString" in response and response["SecretString"] is not None:
                 secret_value = response["SecretString"]
-                safe_log(
-                    self.logger,
-                    logging.DEBUG,
-                    "Successfully fetched secret from AWS Secrets Manager",
-                )
+                safe_log(self.logger, logging.DEBUG, LOG_AWS_SECRET_STRING_SUCCESS)
                 return secret_value
 
             if "SecretBinary" in response and response["SecretBinary"] is not None:
                 # Handle binary secrets
                 secret_value = base64.b64decode(response["SecretBinary"]).decode("utf-8")
-                safe_log(
-                    self.logger,
-                    logging.DEBUG,
-                    "Successfully fetched binary secret from AWS Secrets Manager",
-                )
+                safe_log(self.logger, logging.DEBUG, LOG_AWS_SECRET_BINARY_SUCCESS)
                 return secret_value
 
-            safe_log(
-                self.logger,
-                logging.WARNING,
-                "No SecretString or SecretBinary found in response for %s",
-                secret_id,
-            )
+            safe_log(self.logger, logging.WARNING, LOG_AWS_NO_SECRET_DATA.format(secret_id=secret_id))
             return None
 
         try:
             return retry_with_jitter(_fetch_from_aws)
         except Exception as e:  # pragma: no cover — defensive
-            safe_log(
-                self.logger,
-                logging.ERROR,
-                "Failed to fetch secret from AWS Secrets Manager: %s",
-                e,
-            )
+            safe_log(self.logger, logging.ERROR, LOG_AWS_FETCH_FAILED.format(error=e))
             return None
 
     def _get_cache_key(self) -> str:
@@ -142,8 +137,8 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
             "<region>:<secret_id>" so distinct configs cache independently.
 
         """
-        secret_id = get_env_var("MLFLOW_AWS_SECRET_ID", "") or ""
-        region = get_env_var("AWS_REGION", "") or ""
+        secret_id = get_env_var(ENV_AWS_SECRET_ID, "") or ""
+        region = get_env_var(ENV_AWS_REGION, "") or ""
         return f"{region}:{secret_id}"
 
     def _get_auth_mode(self) -> str:
@@ -153,7 +148,7 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
             "bearer" (default) or "basic", based on `MLFLOW_AWS_AUTH_MODE`.
 
         """
-        return (get_env_var("MLFLOW_AWS_AUTH_MODE", "bearer") or "bearer").lower()
+        return (get_env_var(ENV_AWS_AUTH_MODE, DEFAULT_AUTH_MODE) or DEFAULT_AUTH_MODE).lower()
 
     def _get_ttl(self) -> int:
         """Return the TTL (in seconds) for caching.
@@ -162,5 +157,5 @@ class AWSSecretsManagerAuthProvider(SecretsBackedAuthProvider):
             Validated TTL (clamped) based on `MLFLOW_AWS_TTL_SEC` or default.
 
         """
-        ttl = get_env_int("MLFLOW_AWS_TTL_SEC", self.default_ttl)
+        ttl = get_env_int(ENV_AWS_TTL_SEC, self.default_ttl)
         return validate_ttl(ttl)

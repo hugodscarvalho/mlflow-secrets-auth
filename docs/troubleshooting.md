@@ -59,12 +59,17 @@ print(f'Enabled providers: {enabled}')
 ```
 
 #### Solutions
-1. **Install the Plugin**:
+1. **Activate the Plugin** (most common issue):
+   ```bash
+   export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
+   ```
+
+2. **Install the Plugin**:
    ```bash
    pip install mlflow-secrets-auth[vault,aws,azure]
    ```
 
-2. **Enable a Provider**:
+3. **Enable a Provider**:
    ```bash
    export MLFLOW_SECRETS_AUTH_ENABLE="vault"
    # OR

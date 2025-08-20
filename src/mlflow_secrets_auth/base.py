@@ -39,6 +39,35 @@ from .utils import (
     validate_ttl,
 )
 
+from .constants import (
+    AUTH_MODE_BEARER,
+    AUTH_MODE_BASIC,
+    DEFAULT_AUTH_HEADER,
+    DEFAULT_TTL_SECONDS,
+    HEADER_RETRY_MARKER,
+    HEADER_RETRY_VALUE,
+    SECRET_FIELD_PASSWORD,
+    SECRET_FIELD_TOKEN,
+    SECRET_FIELD_USERNAME,
+)
+
+from .messages import (
+    ERROR_REFRESH_FAILED,
+    INFO_RETRYING_REQUEST,
+    INFO_RETRY_COMPLETED,
+    ERROR_REFRESH_AND_RETRY,
+    DEBUG_PROVIDER_NOT_ENABLED,
+    ERROR_UNEXPECTED_PROVIDER,
+    INFO_HOST_NOT_ALLOWED,
+    WARNING_FETCH_FAILED,
+    WARNING_CONFIG_ERROR,
+    ERROR_BASIC_TOKEN_FORMAT,
+    ERROR_BEARER_WITH_USERPASS,
+    ERROR_SECRET_MISSING_TOKEN_OR_CREDS,
+    WARNING_INVALID_TTL,
+)
+
+
 AuthMode = Literal["bearer", "basic"]
 
 
@@ -64,8 +93,8 @@ def _normalize_header_name(header_name: str | None) -> str:
 
     """
     if not header_name:
-        return "Authorization"
-    return "Authorization" if header_name.lower() == "authorization" else header_name
+        return DEFAULT_AUTH_HEADER
+    return DEFAULT_AUTH_HEADER if header_name.lower() == DEFAULT_AUTH_HEADER.lower() else header_name
 
 
 class BearerAuth(requests.auth.AuthBase):
@@ -81,7 +110,14 @@ class BearerAuth(requests.auth.AuthBase):
 
     __slots__ = ("header_name", "token")
 
-    def __init__(self, token: str, header_name: str = "Authorization") -> None:
+    def __init__(self, token: str, header_name: str = DEFAULT_AUTH_HEADER) -> None:
+        """Initialize bearer authentication.
+
+        Args:
+            token: Bearer token string.
+            header_name: HTTP header to inject (defaults to "Authorization").
+
+        """
         self.token = token
         self.header_name = header_name
 
@@ -105,7 +141,15 @@ class BasicAuth(requests.auth.AuthBase):
 
     __slots__ = ("header_name", "password", "username")
 
-    def __init__(self, username: str, password: str, header_name: str = "Authorization") -> None:
+    def __init__(self, username: str, password: str, header_name: str = DEFAULT_AUTH_HEADER) -> None:
+        """Initialize basic authentication.
+
+        Args:
+            username: Username for basic auth.
+            password: Password for basic auth.
+            header_name: HTTP header to inject (defaults to "Authorization").
+
+        """
         self.username = username
         self.password = password
         self.header_name = header_name
@@ -129,6 +173,13 @@ class CustomHeaderAuth(requests.auth.AuthBase):
     __slots__ = ("header_name", "token")
 
     def __init__(self, token: str, header_name: str) -> None:
+        """Initialize custom header authentication.
+
+        Args:
+            token: Token value to inject directly.
+            header_name: Header name where the token is placed.
+
+        """
         self.token = token
         self.header_name = header_name
 
@@ -180,34 +231,33 @@ class _AutoRefreshAuth(requests.auth.AuthBase):
         r.hooks["response"].append(self._handle_auth_failure)
         return r
 
-    def _handle_auth_failure(self, response: requests.Response, *args, **kwargs) -> requests.Response:
+    def _handle_auth_failure(self, response: requests.Response, *_args, **_kwargs) -> requests.Response:
         """Handle authentication failures by refreshing credentials and retrying once."""
         # Only handle 401/403 responses and avoid retry loops
         if (
             response.status_code not in (401, 403) or
-            response.request.headers.get("X-MLFSA-Retried") == "true"
+            response.request.headers.get(HEADER_RETRY_MARKER) == HEADER_RETRY_VALUE
         ):
             return response
 
         try:
             # Bust the cache and refetch credentials
             delete_cache_key(self.cache_key)
-            secret_data = self.provider._fetch_secret_cached()
+            secret_data = self.provider._fetch_secret_cached()  # noqa: SLF001
             if not secret_data:
                 safe_log(
                     self.provider.logger,
                     logging.WARNING,
-                    "Failed to refresh credentials after %d response",
-                    response.status_code,
+                    ERROR_REFRESH_FAILED.format(status_code=response.status_code),
                 )
                 return response
 
             # Create fresh auth object
-            fresh_auth = self.provider._create_auth(secret_data)
+            fresh_auth = self.provider._create_auth(secret_data)  # noqa: SLF001
 
             # Clone the original request
             retry_request = response.request.copy()
-            retry_request.headers["X-MLFSA-Retried"] = "true"
+            retry_request.headers[HEADER_RETRY_MARKER] = HEADER_RETRY_VALUE
 
             # Apply fresh authentication
             retry_request = fresh_auth(retry_request)
@@ -216,8 +266,7 @@ class _AutoRefreshAuth(requests.auth.AuthBase):
             safe_log(
                 self.provider.logger,
                 logging.DEBUG,
-                "Retrying request with fresh credentials after %d response",
-                response.status_code,
+                INFO_RETRYING_REQUEST.format(status_code=response.status_code),
             )
 
             # Use the same session to maintain connection pooling
@@ -227,8 +276,7 @@ class _AutoRefreshAuth(requests.auth.AuthBase):
             safe_log(
                 self.provider.logger,
                 logging.DEBUG,
-                "Retry completed with status %d",
-                retry_response.status_code,
+                INFO_RETRY_COMPLETED.format(status_code=retry_response.status_code),
             )
 
             return retry_response
@@ -237,8 +285,7 @@ class _AutoRefreshAuth(requests.auth.AuthBase):
             safe_log(
                 self.provider.logger,
                 logging.ERROR,
-                "Failed to refresh credentials and retry: %s",
-                e,
+                ERROR_REFRESH_AND_RETRY.format(error=e),
             )
             return response
 
@@ -266,7 +313,14 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
 
     """
 
-    def __init__(self, provider_name: str, default_ttl: int = 300) -> None:
+    def __init__(self, provider_name: str, default_ttl: int = DEFAULT_TTL_SECONDS) -> None:
+        """Initialize the provider base.
+
+        Args:
+            provider_name: Identifier of the provider (e.g., "vault").
+            default_ttl: Default cache TTL in seconds.
+
+        """
         self.provider_name = provider_name
         self.default_ttl = default_ttl
         self.logger = setup_logger(f"mlflow_secrets_auth.{provider_name}")
@@ -292,14 +346,14 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
 
         """
         if not self._is_enabled():
-            safe_log(self.logger, logging.DEBUG, f"{self.provider_name} provider not enabled")
+            safe_log(self.logger, logging.DEBUG, DEBUG_PROVIDER_NOT_ENABLED.format(provider=self.provider_name))
             return None
 
         try:
             secret_data = self._fetch_secret_cached()
             return None if not secret_data else self._create_auth(secret_data)
         except Exception as e:  # pragma: no cover — defensive guard
-            safe_log(self.logger, logging.ERROR, f"Unexpected error in {self.provider_name}: {e}")
+            safe_log(self.logger, logging.ERROR, ERROR_UNEXPECTED_PROVIDER.format(provider=self.provider_name, error=e))
             return None
 
     def get_request_auth(self, url: str) -> requests.auth.AuthBase | None:
@@ -315,7 +369,7 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
 
         """
         if not self._is_enabled():
-            safe_log(self.logger, logging.DEBUG, f"{self.provider_name} provider not enabled")
+            safe_log(self.logger, logging.DEBUG, DEBUG_PROVIDER_NOT_ENABLED.format(provider=self.provider_name))
             return None
 
         allowed_hosts = get_allowed_hosts()
@@ -324,22 +378,22 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
             safe_log(
                 self.logger,
                 logging.INFO,
-                f"Host {hostname} not in allowed hosts list; skipping auth",
+                INFO_HOST_NOT_ALLOWED.format(hostname=hostname),
             )
             return None
 
         try:
             secret_data = self._fetch_secret_cached()
             if not secret_data:
-                safe_log(self.logger, logging.WARNING, f"Failed to fetch secret from {self.provider_name}")
+                safe_log(self.logger, logging.WARNING, WARNING_FETCH_FAILED.format(provider=self.provider_name))
                 return None
             return self._create_auth(secret_data)
         except ValueError as e:
             # Configuration or parsing error — not fatal to the request.
-            safe_log(self.logger, logging.WARNING, f"{self.provider_name} config error: {e}")
+            safe_log(self.logger, logging.WARNING, WARNING_CONFIG_ERROR.format(provider=self.provider_name, error=e))
             return None
         except Exception as e:  # pragma: no cover — defensive
-            safe_log(self.logger, logging.ERROR, f"Unexpected error in {self.provider_name}: {e}")
+            safe_log(self.logger, logging.ERROR, ERROR_UNEXPECTED_PROVIDER.format(provider=self.provider_name, error=e))
             return None
 
     # Core helpers
@@ -372,7 +426,7 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
                 safe_log(
                     self.logger,
                     logging.WARNING,
-                    f"Invalid TTL '{raw}'; falling back to default {self.default_ttl}",
+                    WARNING_INVALID_TTL.format(raw=raw, default=self.default_ttl),
                 )
                 return self.default_ttl
 
@@ -420,30 +474,29 @@ class SecretsBackedAuthProvider(RequestAuthProvider, ABC):
         auth: requests.auth.AuthBase
 
         # Token provisioned
-        if "token" in secret:
-            token = secret["token"]
-            if auth_mode == "basic":
+        if SECRET_FIELD_TOKEN in secret:
+            token = secret[SECRET_FIELD_TOKEN]
+            if auth_mode == AUTH_MODE_BASIC:
                 # Accept token in the form "username:password" for convenience.
                 if ":" not in token:
-                    msg = "Basic auth requires token formatted as 'username:password'."
+                    msg = ERROR_BASIC_TOKEN_FORMAT
                     raise ValueError(msg)
                 username, password = token.split(":", 1)
                 auth = BasicAuth(username, password, header_name)
-            elif header_name == "Authorization":
+            elif header_name == DEFAULT_AUTH_HEADER:
                 # Bearer or opaque token in custom header
                 auth = BearerAuth(token, header_name)
             else:
                 auth = CustomHeaderAuth(token, header_name)
 
         # Username/password provisioned
-        elif "username" in secret and "password" in secret:
-            if auth_mode == "bearer":
-                msg = "Bearer mode does not accept username/password secrets."
+        elif SECRET_FIELD_USERNAME in secret and SECRET_FIELD_PASSWORD in secret:
+            if auth_mode == AUTH_MODE_BEARER:
+                msg = ERROR_BEARER_WITH_USERPASS
                 raise ValueError(msg)
-            auth = BasicAuth(secret["username"], secret["password"], header_name)
+            auth = BasicAuth(secret[SECRET_FIELD_USERNAME], secret[SECRET_FIELD_PASSWORD], header_name)
         else:
-            msg = "Secret data must contain 'token' or 'username' + 'password'."
-            raise ValueError(msg)
+            raise ValueError(ERROR_SECRET_MISSING_TOKEN_OR_CREDS)
 
         # Wrap with auto-refresh functionality
         cache_key = f"{self.provider_name}:{self._get_cache_key()}"

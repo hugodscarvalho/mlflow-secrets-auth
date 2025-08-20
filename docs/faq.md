@@ -28,6 +28,18 @@ mlflow.start_run()
 mlflow.log_metric("accuracy", 0.95)
 ```
 
+### How can I quickly test the plugin?
+
+Try our complete demo that shows the plugin working end-to-end:
+
+```bash
+git clone https://github.com/hugodscarvalho/mlflow-secrets-auth
+cd mlflow-secrets-auth/examples/vault-nginx-mlflow
+make demo
+```
+
+The demo includes Vault, MLflow, Nginx, and a Python client - everything pre-configured and ready to run.
+
 ### How does the plugin select which provider to use?
 
 The plugin uses a priority-based selection:

@@ -8,6 +8,17 @@ MLflow Secrets Auth is configured entirely through environment variables, making
 
 ## Global Configuration
 
+### Plugin Activation
+
+**Required**: Activate the plugin in MLflow by setting the request auth provider:
+
+```bash
+# Required for plugin activation
+MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
+```
+
+**Important**: Without this environment variable, MLflow will not load the plugin, regardless of other configuration settings.
+
 ### Provider Selection
 
 #### Primary Control

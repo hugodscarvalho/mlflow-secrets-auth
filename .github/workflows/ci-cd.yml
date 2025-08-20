@@ -5,28 +5,28 @@ on:
   pull_request:
 
 jobs:
-  # lint:
-  #   name: Linting & Static Analysis
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout Code
-  #       uses: actions/checkout@v3
+  lint:
+    name: Linting & Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
 
-  #     - name: Set up Python
-  #       uses: actions/setup-python@v4
-  #       with:
-  #         python-version: "3.12"
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
 
-  #     - name: Install Poetry
-  #       run: |
-  #         curl -sSL https://install.python-poetry.org | python3 -
-  #         echo "$HOME/.local/bin" >> $GITHUB_PATH
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-  #     - name: Install Dependencies
-  #       run: poetry install
+      - name: Install Dependencies
+        run: poetry install --all-extras
 
-  #     - name: Run Ruff
-  #       run: poetry run ruff check .
+      - name: Run Ruff
+        run: poetry run ruff check .
 
   test:
     name: Run Tests

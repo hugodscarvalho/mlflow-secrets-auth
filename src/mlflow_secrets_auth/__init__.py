@@ -13,16 +13,25 @@ may be unavailable.
 from __future__ import annotations
 
 import importlib.metadata
-
+from typing import ClassVar
 from .base import SecretsBackedAuthProvider
 from .config import is_provider_enabled
 from .providers.aws_secrets_manager import AWSSecretsManagerAuthProvider
 from .providers.azure_key_vault import AzureKeyVaultAuthProvider
 from .providers.vault import VaultAuthProvider
 
+from mlflow_secrets_auth.constants import (
+    PACKAGE_NAME,
+    DEFAULT_TTL_SECONDS,
+    DEFAULT_AUTH_MODE,
+    PROVIDER_VAULT,
+    PROVIDER_AWS,
+    PROVIDER_AZURE,
+)
+
 # Best-effort version export (useful for CLI/info without installed dist metadata)
 try:  # pragma: no cover - environment dependent
-    __version__ = importlib.metadata.version("mlflow-secrets-auth")
+    __version__ = importlib.metadata.version(PACKAGE_NAME)
 except importlib.metadata.PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0+local"
 
@@ -43,15 +52,15 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
 
     """
 
-    _PROVIDERS: dict[str, type[SecretsBackedAuthProvider]] = {
-        "vault": VaultAuthProvider,
-        "aws-secrets-manager": AWSSecretsManagerAuthProvider,
-        "azure-key-vault": AzureKeyVaultAuthProvider,
+    _PROVIDERS: ClassVar[dict[str, type[SecretsBackedAuthProvider]]] = {
+    PROVIDER_VAULT: VaultAuthProvider,
+    PROVIDER_AWS: AWSSecretsManagerAuthProvider,
+    PROVIDER_AZURE: AzureKeyVaultAuthProvider,
     }
 
     def __init__(self) -> None:
         """Initialize the factory with a default TTL."""
-        super().__init__("mlflow_secrets_auth", default_ttl=300)
+        super().__init__("mlflow_secrets_auth", default_ttl=DEFAULT_TTL_SECONDS)
         self._actual_provider: SecretsBackedAuthProvider | None = None
 
     # Resolution
@@ -81,7 +90,7 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
                 try:
                     self._actual_provider = provider_cls()
                     return self._actual_provider
-                except Exception:
+                except Exception:  # noqa: S112
                     # Keep scanning other providers if one fails to construct.
                     continue
         return None
@@ -96,7 +105,7 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
 
         """
         provider = self._get_actual_provider()
-        return None if provider is None else provider._fetch_secret()  # type: ignore[protected-access]
+        return None if provider is None else provider._fetch_secret()  # noqa: SLF001
 
     def _get_cache_key(self) -> str:
         """Delegate cache-key generation to the actual provider.
@@ -106,7 +115,7 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
 
         """
         provider = self._get_actual_provider()
-        return "" if provider is None else provider._get_cache_key()  # type: ignore[protected-access]
+        return "" if provider is None else provider._get_cache_key()  # noqa: SLF001
 
     def _get_auth_mode(self) -> str:
         """Delegate auth-mode retrieval to the actual provider.
@@ -116,7 +125,7 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
 
         """
         provider = self._get_actual_provider()
-        return "bearer" if provider is None else provider._get_auth_mode()  # type: ignore[protected-access]
+        return DEFAULT_AUTH_MODE if provider is None else provider._get_auth_mode()  # noqa: SLF001
 
     def _get_ttl(self) -> int:
         """Delegate TTL retrieval to the actual provider.
@@ -126,7 +135,7 @@ class SecretsAuthProviderFactory(SecretsBackedAuthProvider):
 
         """
         provider = self._get_actual_provider()
-        return 300 if provider is None else provider._get_ttl()  # type: ignore[protected-access]
+        return DEFAULT_TTL_SECONDS if provider is None else provider._get_ttl()  # noqa: SLF001
 
 
 __all__ = [

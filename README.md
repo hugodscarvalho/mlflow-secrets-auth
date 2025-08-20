@@ -27,11 +27,26 @@ export VAULT_TOKEN="your-vault-token"
 export MLFLOW_VAULT_SECRET_PATH="secret/mlflow/auth"
 export MLFLOW_SECRETS_AUTH_ENABLE="vault"
 
+# Activate the plugin in MLflow (required)
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
+
 # Your MLflow code works unchanged
 import mlflow
 mlflow.set_tracking_uri("https://mlflow.company.com")
 mlflow.start_run()  # Authentication happens automatically
 ```
+
+## Demo
+
+Try the complete working example with Vault + MLflow + Nginx:
+
+```bash
+git clone https://github.com/hugodscarvalho/mlflow-secrets-auth
+cd mlflow-secrets-auth/examples/vault-nginx-mlflow
+make demo
+```
+
+This demo shows the plugin working end-to-end with a real MLflow server protected by authentication.
 
 ## Supported Providers
 

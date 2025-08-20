@@ -68,6 +68,9 @@ export VAULT_TOKEN="hvs.XXXXXXXXXXXXXXXX"
 export MLFLOW_VAULT_SECRET_PATH="secret/mlflow/auth"
 export MLFLOW_SECRETS_AUTH_ENABLE="vault"
 
+# Activate the plugin in MLflow (required)
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
+
 # Your existing MLflow code works unchanged
 mlflow.start_run()
 mlflow.log_metric("accuracy", 0.95)
@@ -85,6 +88,23 @@ mlflow.log_param("model_type", "random_forest")
 mlflow.log_metric("accuracy", 0.95)
 mlflow.end_run()
 ```
+
+## Demo
+
+For a complete working example, try our demo that shows the plugin working end-to-end:
+
+```bash
+git clone https://github.com/hugodscarvalho/mlflow-secrets-auth
+cd mlflow-secrets-auth/examples/vault-nginx-mlflow
+make demo
+```
+
+The demo includes:
+
+- HashiCorp Vault storing MLflow credentials
+- Nginx reverse proxy enforcing authentication
+- MLflow tracking server with experiments
+- Python client using the plugin transparently
 
 ## Next Steps
 

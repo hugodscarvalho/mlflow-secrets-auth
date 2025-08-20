@@ -10,6 +10,40 @@ from mlflow_secrets_auth.base import SecretsBackedAuthProvider
 from mlflow_secrets_auth.config import get_env_int, get_env_var
 from mlflow_secrets_auth.utils import retry_with_jitter, safe_log, validate_ttl
 
+from mlflow_secrets_auth.constants import (
+    PROVIDER_VAULT,
+    DEFAULT_TTL_SECONDS,
+    ENV_VAULT_ADDR,
+    ENV_VAULT_TOKEN,
+    ENV_VAULT_ROLE_ID,
+    ENV_VAULT_SECRET_ID,
+    ENV_VAULT_SECRET_PATH,
+    ENV_VAULT_AUTH_MODE,
+    ENV_VAULT_TTL_SEC,
+    DEFAULT_AUTH_MODE,
+    VAULT_KV_V2_DATA_PREFIX,
+    VAULT_KV_V1_PREFIX,
+)
+
+from mlflow_secrets_auth.messages import (
+    ERROR_VAULT_HVAC_MISSING,
+    INSTALL_VAULT,
+    ERROR_VAULT_ADDR_MISSING,
+    ERROR_VAULT_SECRET_PATH_MISSING,
+    ERROR_VAULT_CREDS_MISSING,
+    ERROR_VAULT_APPROLE_FAILED,
+    ERROR_VAULT_AUTH_FAILED,
+    LOG_VAULT_TOKEN_AUTH,
+    LOG_VAULT_APPROLE_AUTH,
+    LOG_VAULT_KV2_SUCCESS,
+    LOG_VAULT_KV1_SUCCESS,
+    LOG_VAULT_KV2_PATH,
+    LOG_VAULT_KV1_PATH,
+    LOG_VAULT_KV2_FALLBACK,
+    LOG_VAULT_BOTH_KV_FAILED,
+    LOG_VAULT_NO_SECRET_DATA,
+)
+
 
 class VaultAuthProvider(SecretsBackedAuthProvider):
     """Authentication provider using HashiCorp Vault.
@@ -36,7 +70,7 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
 
     def __init__(self) -> None:
         """Initialize the provider with a default TTL and a lazy hvac client."""
-        super().__init__("vault", default_ttl=300)
+        super().__init__(PROVIDER_VAULT, default_ttl=DEFAULT_TTL_SECONDS)
         self._vault_client: Any | None = None  # hvac.Client if available
 
     # Internal client management
@@ -56,52 +90,50 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             return self._vault_client
 
         try:
-            import hvac  # type: ignore
+            import hvac  # type: ignore[import-untyped]
         except ImportError:
             safe_log(
                 self.logger,
                 logging.ERROR,
-                "hvac package is required for Vault support. "
-                "Install with: pip install mlflow-secrets-auth[vault]",
+                f"{ERROR_VAULT_HVAC_MISSING} {INSTALL_VAULT}",
             )
             return None
 
-        vault_addr = get_env_var("VAULT_ADDR")
+        vault_addr = get_env_var(ENV_VAULT_ADDR)
         if not vault_addr:
-            safe_log(self.logger, logging.DEBUG, "VAULT_ADDR environment variable is required")
+            safe_log(self.logger, logging.DEBUG, ERROR_VAULT_ADDR_MISSING)
             return None
 
         client = hvac.Client(url=vault_addr)
 
         # Authenticate using token or AppRole
-        vault_token = get_env_var("VAULT_TOKEN")
+        vault_token = get_env_var(ENV_VAULT_TOKEN)
         if vault_token:
             client.token = vault_token
-            safe_log(self.logger, logging.DEBUG, "Using Vault token authentication")
+            safe_log(self.logger, logging.DEBUG, LOG_VAULT_TOKEN_AUTH)
         else:
-            role_id = get_env_var("VAULT_ROLE_ID")
-            secret_id = get_env_var("VAULT_SECRET_ID")
+            role_id = get_env_var(ENV_VAULT_ROLE_ID)
+            secret_id = get_env_var(ENV_VAULT_SECRET_ID)
 
             if not role_id or not secret_id:
                 safe_log(
                     self.logger,
                     logging.DEBUG,
-                    "Either VAULT_TOKEN or both VAULT_ROLE_ID and VAULT_SECRET_ID "
-                    "environment variables are required",
+                    ERROR_VAULT_CREDS_MISSING,
                 )
                 return None
 
             try:
                 auth_response = client.auth.approle.login(role_id=role_id, secret_id=secret_id)
                 client.token = auth_response["auth"]["client_token"]
-                safe_log(self.logger, logging.DEBUG, "Using Vault AppRole authentication")
+                safe_log(self.logger, logging.DEBUG, LOG_VAULT_APPROLE_AUTH)
             except Exception as e:
-                safe_log(self.logger, logging.DEBUG, f"Vault AppRole authentication failed: {e}")
+                safe_log(self.logger, logging.DEBUG, ERROR_VAULT_APPROLE_FAILED.format(error=e))
                 return None
 
         # Verify authentication
         if not client.is_authenticated():
-            safe_log(self.logger, logging.DEBUG, "Vault authentication failed")
+            safe_log(self.logger, logging.DEBUG, ERROR_VAULT_AUTH_FAILED)
             return None
 
         self._vault_client = client
@@ -119,12 +151,12 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             A JSON string with secret fields or None if retrieval fails.
 
         """
-        secret_path = get_env_var("MLFLOW_VAULT_SECRET_PATH")
+        secret_path = get_env_var(ENV_VAULT_SECRET_PATH)
         if not secret_path:
             safe_log(
                 self.logger,
                 logging.DEBUG,
-                "MLFLOW_VAULT_SECRET_PATH environment variable is required",
+                ERROR_VAULT_SECRET_PATH_MISSING,
             )
             return None
 
@@ -133,42 +165,58 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             return None
 
         def _fetch_from_vault() -> str | None:
-            # Try KV v2
+            # Try KV v2 first
             try:
-                # Normalize to kv2 path "secret/data/<path>" but hvac.v2.read_secret_version
-                # expects the path relative to mount point, so we strip "secret/data/" again.
-                if not secret_path.startswith("secret/data/"):
-                    kv2_path = secret_path.replace("secret/", "secret/data/", 1) if secret_path.startswith("secret/") else f"secret/data/{secret_path}"
-                else:
+                # Normalize to KV v2 path "<mount>/data/<path>".
+                if secret_path.startswith(VAULT_KV_V2_DATA_PREFIX):
                     kv2_path = secret_path
+                elif secret_path.startswith(VAULT_KV_V1_PREFIX):
+                    kv2_path = secret_path.replace(VAULT_KV_V1_PREFIX, VAULT_KV_V2_DATA_PREFIX, 1)
+                else:
+                    kv2_path = f"{VAULT_KV_V2_DATA_PREFIX}{secret_path.lstrip('/')}"
 
-                safe_log(self.logger, logging.DEBUG, f"Trying KV v2 path: {kv2_path}")
-                response = client.secrets.kv.v2.read_secret_version(path=kv2_path.replace("secret/data/", ""))
+                safe_log(self.logger, logging.DEBUG, LOG_VAULT_KV2_PATH.format(path=kv2_path))
+
+                # hvac v2 expects the path *relative* to the mount (strip "<mount>/data/")
+                response = client.secrets.kv.v2.read_secret_version(
+                    path=kv2_path.replace(VAULT_KV_V2_DATA_PREFIX, "", 1),
+                )
 
                 if response and "data" in response and "data" in response["data"]:
                     secret_data = response["data"]["data"]
-                    safe_log(self.logger, logging.DEBUG, "Successfully fetched secret using KV v2")
+                    safe_log(self.logger, logging.DEBUG, LOG_VAULT_KV2_SUCCESS)
                     return json.dumps(secret_data)
 
             except Exception as e:
-                safe_log(self.logger, logging.DEBUG, f"KV v2 failed, trying KV v1: {e}")
+                safe_log(self.logger, logging.DEBUG, LOG_VAULT_KV2_FALLBACK.format(error=e))
 
                 # Fallback to KV v1
                 try:
-                    kv1_path = secret_path.replace("secret/data/", "secret/")
-                    safe_log(self.logger, logging.DEBUG, f"Trying KV v1 path: {kv1_path}")
-                    response = client.secrets.kv.v1.read_secret(path=kv1_path.replace("secret/", ""))
+                    # Convert any v2-style path back to v1 for the fallback.
+                    if secret_path.startswith(VAULT_KV_V2_DATA_PREFIX):
+                        kv1_path = secret_path.replace(VAULT_KV_V2_DATA_PREFIX, VAULT_KV_V1_PREFIX, 1)
+                    elif secret_path.startswith(VAULT_KV_V1_PREFIX):
+                        kv1_path = secret_path
+                    else:
+                        kv1_path = f"{VAULT_KV_V1_PREFIX}{secret_path.lstrip('/')}"
+
+                    safe_log(self.logger, logging.DEBUG, LOG_VAULT_KV1_PATH.format(path=kv1_path))
+
+                    # hvac v1 expects the path *relative* to the mount (strip "<mount>/")
+                    response = client.secrets.kv.v1.read_secret(
+                        path=kv1_path.replace(VAULT_KV_V1_PREFIX, "", 1),
+                    )
 
                     if response and "data" in response:
                         secret_data = response["data"]
-                        safe_log(self.logger, logging.DEBUG, "Successfully fetched secret using KV v1")
+                        safe_log(self.logger, logging.DEBUG, LOG_VAULT_KV1_SUCCESS)
                         return json.dumps(secret_data)
 
                 except Exception as e2:
-                    safe_log(self.logger, logging.ERROR, f"Both KV v1 and v2 failed: {e2}")
+                    safe_log(self.logger, logging.ERROR, LOG_VAULT_BOTH_KV_FAILED.format(error=e2))
                     raise e2
 
-            safe_log(self.logger, logging.WARNING, "No secret data found at path")
+            safe_log(self.logger, logging.WARNING, LOG_VAULT_NO_SECRET_DATA)
             return None
 
         try:
@@ -185,8 +233,8 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             A unique key for the cache layer.
 
         """
-        secret_path = get_env_var("MLFLOW_VAULT_SECRET_PATH", "") or ""
-        vault_addr = get_env_var("VAULT_ADDR", "") or ""
+        secret_path = get_env_var(ENV_VAULT_SECRET_PATH, "") or ""
+        vault_addr = get_env_var(ENV_VAULT_ADDR, "") or ""
         return f"{vault_addr}:{secret_path}"
 
     def _get_auth_mode(self) -> str:
@@ -196,7 +244,7 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             "bearer" (default) or "basic", based on `MLFLOW_VAULT_AUTH_MODE`.
 
         """
-        return (get_env_var("MLFLOW_VAULT_AUTH_MODE", "bearer") or "bearer").lower()
+        return (get_env_var(ENV_VAULT_AUTH_MODE, DEFAULT_AUTH_MODE) or DEFAULT_AUTH_MODE).lower()
 
     def _get_ttl(self) -> int:
         """Return the TTL (in seconds) for caching.
@@ -205,5 +253,5 @@ class VaultAuthProvider(SecretsBackedAuthProvider):
             Validated TTL (clamped) based on `MLFLOW_VAULT_TTL_SEC` or default.
 
         """
-        ttl = get_env_int("MLFLOW_VAULT_TTL_SEC", self.default_ttl)
+        ttl = get_env_int(ENV_VAULT_TTL_SEC, self.default_ttl)
         return validate_ttl(ttl)

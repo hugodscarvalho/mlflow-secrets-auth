@@ -9,6 +9,30 @@ from mlflow_secrets_auth.base import SecretsBackedAuthProvider
 from mlflow_secrets_auth.config import get_env_int, get_env_var
 from mlflow_secrets_auth.utils import retry_with_jitter, safe_log, validate_ttl
 
+from mlflow_secrets_auth.constants import (
+    PROVIDER_AZURE,
+    DEFAULT_TTL_SECONDS,
+    DEFAULT_AUTH_MODE,
+    ENV_AZURE_VAULT_URL,
+    ENV_AZURE_SECRET_NAME,
+    ENV_AZURE_AUTH_MODE,
+    ENV_AZURE_TTL_SEC,
+)
+
+from mlflow_secrets_auth.messages import (
+    ERROR_AZURE_PACKAGES_MISSING,
+    ERROR_AZURE_VAULT_URL_MISSING,
+    ERROR_AZURE_URL_NOT_HTTPS,
+    ERROR_AZURE_CLIENT_CREATE_FAILED,
+    ERROR_AZURE_SECRET_NAME_MISSING,
+    INSTALL_AZURE,
+    LOG_AZURE_CLIENT_CREATED,
+    LOG_AZURE_FETCHING_SECRET,
+    LOG_AZURE_SECRET_SUCCESS,
+    LOG_AZURE_SECRET_EMPTY,
+    LOG_AZURE_FETCH_FAILED,
+)
+
 
 class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
     """Authentication provider using Azure Key Vault.
@@ -24,7 +48,7 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
 
     def __init__(self) -> None:
         """Initialize the provider with a default TTL and a lazy SecretClient."""
-        super().__init__("azure-key-vault", default_ttl=300)
+        super().__init__(PROVIDER_AZURE, default_ttl=DEFAULT_TTL_SECONDS)
         self._secret_client: Any | None = None  # azure.keyvault.secrets.SecretClient when available
 
     # Internal client management
@@ -44,31 +68,25 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
             return self._secret_client
 
         try:
-            from azure.identity import DefaultAzureCredential  # type: ignore
-            from azure.keyvault.secrets import SecretClient  # type: ignore
+            from azure.identity import DefaultAzureCredential  # type: ignore[import-untyped]
+            from azure.keyvault.secrets import SecretClient  # type: ignore[import-untyped]
         except ImportError as exc:  # pragma: no cover - optional dependency path
-            msg = (
-                "azure-identity and azure-keyvault-secrets packages are required "
-                "for Azure Key Vault support. "
-                "Install with: pip install mlflow-secrets-auth[azure]"
-            )
+            msg = f"{ERROR_AZURE_PACKAGES_MISSING} {INSTALL_AZURE}"
             raise ImportError(msg) from exc
 
-        vault_url = (get_env_var("AZURE_KEY_VAULT_URL") or "").strip()
+        vault_url = (get_env_var(ENV_AZURE_VAULT_URL) or "").strip()
         if not vault_url:
-            msg = "AZURE_KEY_VAULT_URL environment variable is required"
-            raise ValueError(msg)
+            raise ValueError(ERROR_AZURE_VAULT_URL_MISSING)
         if not vault_url.lower().startswith("https://"):
-            msg = "AZURE_KEY_VAULT_URL must start with https://"
-            raise ValueError(msg)
+            raise ValueError(ERROR_AZURE_URL_NOT_HTTPS)
 
         try:
             credential = DefaultAzureCredential()
             self._secret_client = SecretClient(vault_url=vault_url, credential=credential)
-            safe_log(self.logger, logging.DEBUG, "Created Azure Key Vault client for %s", vault_url)
+            safe_log(self.logger, logging.DEBUG, LOG_AZURE_CLIENT_CREATED.format(url=vault_url))
             return self._secret_client
         except Exception as e:  # pragma: no cover — defensive
-            msg = f"Failed to create Azure Key Vault client: {e}"
+            msg = ERROR_AZURE_CLIENT_CREATE_FAILED.format(error=e)
             raise ValueError(msg) from e
 
     # SecretsBackedAuthProvider hooks
@@ -84,28 +102,27 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
             ImportError: If Azure SDK dependencies are not installed.
 
         """
-        secret_name = (get_env_var("MLFLOW_AZURE_SECRET_NAME") or "").strip()
+        secret_name = (get_env_var(ENV_AZURE_SECRET_NAME) or "").strip()
         if not secret_name:
-            msg = "MLFLOW_AZURE_SECRET_NAME environment variable is required"
-            raise ValueError(msg)
+            raise ValueError(ERROR_AZURE_SECRET_NAME_MISSING)
 
         client = self._get_secret_client()
 
         def _fetch_from_azure() -> str | None:
-            safe_log(self.logger, logging.DEBUG, "Fetching secret: %s", secret_name)
+            safe_log(self.logger, logging.DEBUG, LOG_AZURE_FETCHING_SECRET.format(name=secret_name))
             secret = client.get_secret(secret_name)
 
             if secret and getattr(secret, "value", None):
-                safe_log(self.logger, logging.DEBUG, "Successfully fetched secret from Azure Key Vault")
+                safe_log(self.logger, logging.DEBUG, LOG_AZURE_SECRET_SUCCESS)
                 return secret.value
 
-            safe_log(self.logger, logging.WARNING, "Secret value is empty for %s", secret_name)
+            safe_log(self.logger, logging.WARNING, LOG_AZURE_SECRET_EMPTY.format(name=secret_name))
             return None
 
         try:
             return retry_with_jitter(_fetch_from_azure)
         except Exception as e:  # pragma: no cover — defensive
-            safe_log(self.logger, logging.ERROR, "Failed to fetch secret from Azure Key Vault: %s", e)
+            safe_log(self.logger, logging.ERROR, LOG_AZURE_FETCH_FAILED.format(error=e))
             return None
 
     def _get_cache_key(self) -> str:
@@ -115,8 +132,8 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
             "<vault_url>:<secret_name>" so distinct configs cache independently.
 
         """
-        vault_url = (get_env_var("AZURE_KEY_VAULT_URL", "") or "").strip()
-        secret_name = (get_env_var("MLFLOW_AZURE_SECRET_NAME", "") or "").strip()
+        vault_url = (get_env_var(ENV_AZURE_VAULT_URL, "") or "").strip()
+        secret_name = (get_env_var(ENV_AZURE_SECRET_NAME, "") or "").strip()
         return f"{vault_url}:{secret_name}"
 
     def _get_auth_mode(self) -> str:
@@ -126,7 +143,7 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
             "bearer" (default) or "basic", based on `MLFLOW_AZURE_AUTH_MODE`.
 
         """
-        return (get_env_var("MLFLOW_AZURE_AUTH_MODE", "bearer") or "bearer").lower()
+        return (get_env_var(ENV_AZURE_AUTH_MODE, DEFAULT_AUTH_MODE) or DEFAULT_AUTH_MODE).lower()
 
     def _get_ttl(self) -> int:
         """Return the TTL (in seconds) for caching.
@@ -135,5 +152,5 @@ class AzureKeyVaultAuthProvider(SecretsBackedAuthProvider):
             Validated TTL (clamped) based on `MLFLOW_AZURE_TTL_SEC` or default.
 
         """
-        ttl = get_env_int("MLFLOW_AZURE_TTL_SEC", self.default_ttl)
+        ttl = get_env_int(ENV_AZURE_TTL_SEC, self.default_ttl)
         return validate_ttl(ttl)

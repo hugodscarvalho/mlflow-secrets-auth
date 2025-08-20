@@ -109,9 +109,12 @@ pip install mlflow-secrets-auth[vault,aws,azure]
 
 ## Step 3: Enable the Plugin
 
-Enable your chosen provider:
+Activate the plugin in MLflow and enable your chosen provider:
 
 ```bash
+# Activate the plugin in MLflow (required)
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
+
 # Enable specific provider
 export MLFLOW_SECRETS_AUTH_ENABLE="vault"
 # OR
@@ -172,6 +175,9 @@ print("Setup successful!")
 Create a `.env` file or set these environment variables in your deployment:
 
 ```bash
+# Plugin Activation (required)
+MLFLOW_TRACKING_AUTH=mlflow_secrets_auth
+
 # Provider Selection
 MLFLOW_SECRETS_AUTH_ENABLE=vault
 
@@ -194,6 +200,7 @@ MLFLOW_VAULT_TTL_SEC=300
 
 ```bash
 # Local development with Vault
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
 export VAULT_ADDR="http://localhost:8200"
 export VAULT_TOKEN="dev-token"
 export MLFLOW_VAULT_SECRET_PATH="secret/dev/mlflow"
@@ -205,6 +212,7 @@ export MLFLOW_SECRETS_AUTH_ENABLE="vault"
 
 ```bash
 # Production with AWS Secrets Manager
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
 export AWS_REGION="us-east-1"
 export MLFLOW_AWS_SECRET_NAME="production/mlflow/auth"
 export MLFLOW_SECRETS_ALLOWED_HOSTS="mlflow.company.com"
@@ -216,6 +224,7 @@ export MLFLOW_SECRETS_LOG_LEVEL="WARNING"
 
 ```bash
 # Azure Key Vault for CI/CD
+export MLFLOW_TRACKING_AUTH="mlflow_secrets_auth"
 export AZURE_TENANT_ID="${AZURE_TENANT_ID}"
 export AZURE_CLIENT_ID="${AZURE_CLIENT_ID}"
 export AZURE_CLIENT_SECRET="${AZURE_CLIENT_SECRET}"
@@ -231,6 +240,7 @@ export MLFLOW_SECRETS_AUTH_ENABLE="azure-key-vault"
 - **[Provider Documentation](providers/)** - Provider-specific configuration details
 - **[CLI Tools](cli.md)** - Command-line utilities and diagnostics
 - **[Troubleshooting](troubleshooting.md)** - Common issues and solutions
+- **[Demo Example](../examples/vault-nginx-mlflow/)** - Complete working example with Docker Compose
 
 ## Troubleshooting Quick Start
 
@@ -259,3 +269,28 @@ If you encounter issues during setup:
    ```
 
 For detailed troubleshooting, see the [Troubleshooting Guide](troubleshooting.md).
+
+## Try the Demo
+
+Before configuring your own environment, you can quickly test the plugin with our complete demo:
+
+```bash
+git clone https://github.com/hugodscarvalho/mlflow-secrets-auth
+cd mlflow-secrets-auth/examples/vault-nginx-mlflow
+make demo
+```
+
+The demo provides:
+
+- **Complete Stack**: Vault + MLflow + Nginx + Python client
+- **Real Authentication**: Nginx enforces auth, plugin handles it transparently  
+- **Multiple Auth Modes**: Basic auth and Bearer token examples
+- **Working Examples**: See actual MLflow experiments being logged
+- **Easy Cleanup**: `make down` removes everything
+
+After running the demo:
+
+- MLflow UI: <http://localhost:8080>
+- Vault UI: <http://localhost:8200> (token: `demo-root-token-12345`)
+
+This is the fastest way to see the plugin in action before setting up your own infrastructure.

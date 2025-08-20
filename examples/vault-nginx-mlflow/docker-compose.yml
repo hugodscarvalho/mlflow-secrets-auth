@@ -1,0 +1,112 @@
+services:
+  # HashiCorp Vault (dev mode) - stores credentials
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: mlflow-demo-vault
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_ROOT_TOKEN}
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK
+    command: ["vault", "server", "-dev"]
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mlflow-demo
+
+  # Nginx - reverse proxy with auth
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: mlflow-demo-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./auth/htpasswd:/etc/nginx/htpasswd:ro
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks:
+      - mlflow-demo
+
+  # MLflow Tracking Server
+  mlflow:
+    image: python:3.11-slim
+    container_name: mlflow-demo-mlflow
+    ports:
+      - "5000:5000"
+    working_dir: /app
+    command: >
+      bash -c "
+        pip install mlflow==2.20.4 &&
+        export GUNICORN_CMD_ARGS='--bind 0.0.0.0:5000 --workers 4' &&
+        exec mlflow server --host 0.0.0.0 --port 5000
+      "
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:5000/health\")'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    networks:
+      - mlflow-demo
+
+  # Setup container - seeds Vault with credentials
+  vault-setup:
+    image: hashicorp/vault:1.15
+    container_name: mlflow-demo-setup
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_ROOT_TOKEN}
+      MLFLOW_USERNAME: ${MLFLOW_USERNAME}
+      MLFLOW_PASSWORD: ${MLFLOW_PASSWORD}
+      MLFLOW_API_KEY: ${MLFLOW_API_KEY}
+    volumes:
+      - ./scripts/seed_vault.sh:/seed_vault.sh:ro
+    depends_on:
+      vault:
+        condition: service_healthy
+    command: ["sh", "/seed_vault.sh"]
+    networks:
+      - mlflow-demo
+
+  # Client container - runs the demo
+  client:
+    build:
+      context: ../../
+      dockerfile: examples/vault-nginx-mlflow/client/Dockerfile
+    container_name: mlflow-demo-client
+    environment:
+      # Vault configuration
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${VAULT_ROOT_TOKEN}
+      MLFLOW_VAULT_SECRET_PATH: ${VAULT_SECRET_PATH}
+      MLFLOW_VAULT_AUTH_MODE: ${AUTH_MODE}
+      
+      # Plugin configuration
+      MLFLOW_SECRETS_AUTH_ENABLE: vault
+      MLFLOW_SECRETS_ALLOWED_HOSTS: nginx,nginx:80
+      MLFLOW_SECRETS_LOG_LEVEL: INFO
+      MLFLOW_REQUEST_AUTH_PROVIDER: mlflow_secrets_auth.SecretsAuthProviderFactory
+      
+      # MLflow configuration
+      MLFLOW_TRACKING_URI: http://nginx
+    depends_on:
+      vault-setup:
+        condition: service_completed_successfully
+      nginx:
+        condition: service_started
+    networks:
+      - mlflow-demo
+
+volumes: {}
+
+networks:
+  mlflow-demo:
+    driver: bridge

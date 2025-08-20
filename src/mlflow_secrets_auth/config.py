@@ -16,6 +16,19 @@ import os
 import re
 from typing import Final
 
+from .constants import (
+    DEFAULT_AUTH_HEADER,
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_MASK_CHAR,
+    DEFAULT_SHOW_CHARS,
+    ENV_ALLOWED_HOSTS,
+    ENV_AUTH_HEADER_NAME,
+    ENV_LOG_LEVEL,
+    ENV_AUTH_ENABLE,
+    TRUTHY_VALUES,
+    ENV_AUTH_ENABLE_PREFIX,
+)
+
 
 def get_env_var(name: str, default: str | None = None) -> str | None:
     """Return an environment variable or a default.
@@ -47,7 +60,7 @@ def get_env_bool(name: str, default: bool = False) -> bool:
     value = get_env_var(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value.strip().lower() in TRUTHY_VALUES
 
 
 def get_env_int(name: str, default: int) -> int:
@@ -90,7 +103,7 @@ def get_allowed_hosts() -> list[str] | None:
         A list of hostname patterns, or None if not configured.
 
     """
-    hosts_str = get_env_var("MLFLOW_SECRETS_ALLOWED_HOSTS")
+    hosts_str = get_env_var(ENV_ALLOWED_HOSTS)
     if not hosts_str:
         return None
     hosts = [h.strip() for h in hosts_str.split(",") if h.strip()]
@@ -106,7 +119,7 @@ def get_auth_header_name() -> str:
         Header name as a string.
 
     """
-    return get_env_var("MLFLOW_AUTH_HEADER_NAME", "Authorization") or "Authorization"
+    return get_env_var(ENV_AUTH_HEADER_NAME, DEFAULT_AUTH_HEADER) or DEFAULT_AUTH_HEADER
 
 
 def get_log_level() -> str:
@@ -118,7 +131,7 @@ def get_log_level() -> str:
         Uppercased logging level string (e.g., "INFO", "DEBUG").
 
     """
-    return (get_env_var("MLFLOW_SECRETS_LOG_LEVEL", "INFO") or "INFO").upper()
+    return (get_env_var(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL) or DEFAULT_LOG_LEVEL).upper()
 
 
 def is_provider_enabled(provider_name: str) -> bool:
@@ -137,17 +150,17 @@ def is_provider_enabled(provider_name: str) -> bool:
 
     """
     # Global list
-    global_enable = get_env_var("MLFLOW_SECRETS_AUTH_ENABLE", "") or ""
+    global_enable = get_env_var(ENV_AUTH_ENABLE, "") or ""
     enabled = {p.strip().lower() for p in global_enable.split(",") if p.strip()}
     if provider_name.strip().lower() in enabled:
         return True
 
     # Provider-specific toggle
-    env_key = f"MLFLOW_SECRETS_AUTH_ENABLE_{provider_name.upper().replace('-', '_')}"
+    env_key = f"{ENV_AUTH_ENABLE_PREFIX}{provider_name.upper().replace('-', '_')}"
     return get_env_bool(env_key, False)
 
 
-def mask_secret(value: str, mask_char: str = "*", show_chars: int = 4) -> str:
+def mask_secret(value: str, mask_char: str = DEFAULT_MASK_CHAR, show_chars: int = DEFAULT_SHOW_CHARS) -> str:
     """Mask a secret value for safe logging.
 
     Examples:

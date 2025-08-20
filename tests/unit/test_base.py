@@ -10,7 +10,7 @@ import requests
 from mlflow_secrets_auth.base import SecretsBackedAuthProvider
 
 
-class TestAuthProvider(SecretsBackedAuthProvider):
+class MockAuthProvider(SecretsBackedAuthProvider):
     """Test implementation of the base provider."""
 
     def __init__(self):
@@ -45,7 +45,7 @@ class TestSecretsBackedAuthProvider:
             if key.startswith('MLFLOW_'):
                 del os.environ[key]
 
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
 
     def test_bearer_token_auth(self):
         """Test bearer token authentication."""
@@ -66,7 +66,7 @@ class TestSecretsBackedAuthProvider:
         """Test basic authentication."""
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
         os.environ["MLFLOW_TEST_AUTH_MODE"] = "basic"
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
         self.provider.set_test_secret({
             "username": "testuser",
             "password": "testpass",
@@ -89,7 +89,7 @@ class TestSecretsBackedAuthProvider:
         """Test custom authentication header name."""
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
         os.environ["MLFLOW_AUTH_HEADER_NAME"] = "X-Custom-Auth"
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
         self.provider.set_test_secret({"token": "custom-token"})
 
         auth = self.provider.get_auth()
@@ -106,7 +106,7 @@ class TestSecretsBackedAuthProvider:
         """Test host allowlist functionality."""
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
         os.environ["MLFLOW_SECRETS_ALLOWED_HOSTS"] = "mlflow.example.com,trusted.example.com"
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
 
         # Allowed host should get auth
         auth = self.provider.get_request_auth("https://mlflow.example.com/api/2.0/")
@@ -122,7 +122,7 @@ class TestSecretsBackedAuthProvider:
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
         os.environ["MLFLOW_TEST_TTL_SEC"] = "1"
 
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
         call_count = 0
         original_fetch = self.provider._fetch_secret
 
@@ -151,7 +151,7 @@ class TestSecretsBackedAuthProvider:
     def test_invalid_secret_format(self):
         """Test handling of invalid secret format."""
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
         self.provider.set_test_secret({"invalid": "format"})
 
         # Should return None instead of raising exception
@@ -161,7 +161,7 @@ class TestSecretsBackedAuthProvider:
     def test_backend_error_handling(self):
         """Test error handling when backend fails."""
         os.environ["MLFLOW_SECRETS_AUTH_ENABLE"] = "test"
-        self.provider = TestAuthProvider()
+        self.provider = MockAuthProvider()
 
         def failing_fetch():
             msg = "Backend error"

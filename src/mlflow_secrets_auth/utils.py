@@ -19,7 +19,24 @@ import time
 from typing import Any, TypeVar
 from collections.abc import Callable
 from urllib.parse import urlparse
-
+from .constants import (
+    DEFAULT_MASK_CHAR,
+    DEFAULT_SHOW_CHARS,
+    DEFAULT_TTL_SECONDS,
+    MAX_TTL_SECONDS,
+    MIN_TTL_SECONDS,
+    SECRET_FIELD_PASSWORD,
+    SECRET_FIELD_TOKEN,
+    SECRET_FIELD_USERNAME,
+)
+from .messages import (
+    ERROR_SECRET_EMPTY,
+    ERROR_SECRET_INVALID_JSON,
+    ERROR_SECRET_TOKEN_INVALID,
+    ERROR_SECRET_USERNAME_INVALID,
+    ERROR_SECRET_PASSWORD_INVALID,
+    ERROR_SECRET_MISSING_FIELDS,
+)
 from .config import get_log_level, redact_sensitive_data
 
 
@@ -111,46 +128,41 @@ def parse_secret_json(secret_value: str) -> dict[str, str]:
         # Fallback to plain string
         value = secret_value.strip()
         if not value:
-            msg = "Secret is empty"
-            raise ValueError(msg)
+            raise ValueError(ERROR_SECRET_EMPTY) from None
 
         if ":" in value:
             username, password = value.split(":", 1)
             username = (username or "").strip()
             password = (password or "").strip()
-            if not username or not password:
-                msg = "Secret 'username:password' must be non-empty"
-                raise ValueError(msg)
-            return {"username": username, "password": password}
-        return {"token": value}
+            if not username or not username.strip():
+                raise ValueError(ERROR_SECRET_USERNAME_INVALID) from None
+            if not password or not password.strip():
+                raise ValueError(ERROR_SECRET_PASSWORD_INVALID) from None
+            return {SECRET_FIELD_USERNAME: username, SECRET_FIELD_PASSWORD: password}
+        return {SECRET_FIELD_TOKEN: value}
 
     if not isinstance(data, dict):
-        msg = "Secret value must be a JSON object"
-        raise ValueError(msg)
+        raise ValueError(ERROR_SECRET_INVALID_JSON)
 
     # Token-based secret
-    if "token" in data:
-        token = data["token"]
+    if SECRET_FIELD_TOKEN in data:
+        token = data[SECRET_FIELD_TOKEN]
         if not isinstance(token, str) or not token.strip():
-            msg = "Secret 'token' field must be a non-empty string"
-            raise ValueError(msg)
-        return {"token": token.strip()}
+            raise ValueError(ERROR_SECRET_TOKEN_INVALID)
+        return {SECRET_FIELD_TOKEN: token.strip()}
 
     # Username/password secret
-    if "username" in data and "password" in data:
-        username = data["username"]
-        password = data["password"]
+    if SECRET_FIELD_USERNAME in data and SECRET_FIELD_PASSWORD in data:
+        username = data[SECRET_FIELD_USERNAME]
+        password = data[SECRET_FIELD_PASSWORD]
         if not isinstance(username, str) or not username.strip():
-            msg = "Secret 'username' field must be a non-empty string"
-            raise ValueError(msg)
+            raise ValueError(ERROR_SECRET_USERNAME_INVALID)
         if not isinstance(password, str) or not password.strip():
-            msg = "Secret 'password' field must be a non-empty string"
-            raise ValueError(msg)
-        return {"username": username.strip(), "password": password.strip()}
+            raise ValueError(ERROR_SECRET_PASSWORD_INVALID)
+        return {SECRET_FIELD_USERNAME: username.strip(), SECRET_FIELD_PASSWORD: password.strip()}
 
-    msg = "Secret must contain either 'token' field or both 'username' and 'password' fields"
     raise ValueError(
-        msg,
+        ERROR_SECRET_MISSING_FIELDS,
     )
 
 
@@ -225,9 +237,9 @@ def format_duration(seconds: int) -> str:
 def validate_ttl(
     ttl_seconds: int | None,
     *,
-    default: int = 300,
-    min_ttl: int = 1,
-    max_ttl: int = 3600,
+    default: int = DEFAULT_TTL_SECONDS,
+    min_ttl: int = MIN_TTL_SECONDS,
+    max_ttl: int = MAX_TTL_SECONDS,
 ) -> int:
     """Validate and clamp a TTL value.
 
@@ -261,7 +273,7 @@ def validate_ttl(
     return ttl
 
 
-def mask_secret(secret: str, show_chars: int = 4) -> str:
+def mask_secret(secret: str, show_chars: int = DEFAULT_SHOW_CHARS) -> str:
     """Mask a secret for safe logging.
 
     For short inputs (<= 2 * show_chars) returns a generic "***" to avoid
@@ -276,7 +288,7 @@ def mask_secret(secret: str, show_chars: int = 4) -> str:
 
     """
     if not secret or len(secret) <= show_chars * 2:
-        return "***"
+        return DEFAULT_MASK_CHAR * 3
     return f"{secret[:show_chars]}...{secret[-show_chars:]}"
 
 
@@ -329,7 +341,7 @@ def retry_with_jitter(
             delay = min(base_delay * (backoff ** attempt), max_delay)
 
             # Add jitter: ±jitter% of the delay
-            jitter_amount = delay * jitter * (2 * random.random() - 1)
+            jitter_amount = delay * jitter * (2 * random.random() - 1)  # noqa: S311
             final_delay = max(0, delay + jitter_amount)
 
             sleep(final_delay)

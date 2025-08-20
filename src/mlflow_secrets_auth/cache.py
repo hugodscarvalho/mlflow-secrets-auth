@@ -1,6 +1,6 @@
 """TTL cache implementation for secrets.
 
-Provides a lightweight, thread-safe cache with monotonic-clock–based TTLs and a
+Provides a lightweight, thread-safe cache with monotonic-clock-based TTLs and a
 simple decorator (`cached_fetch`) to memoize zero-argument callables.
 
 Design goals:
@@ -18,6 +18,7 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
+from .constants import DEFAULT_TTL_SECONDS, MIN_TTL_SECONDS, MAX_TTL_SECONDS
 T = TypeVar("T")
 
 
@@ -27,6 +28,7 @@ class TTLCache:
     __slots__ = ("_cache", "_lock")
 
     def __init__(self) -> None:
+        """Initialize an empty TTL cache with thread safety."""
         self._cache: dict[str, tuple[Any, float]] = {}
         self._lock = threading.RLock()
 
@@ -58,7 +60,8 @@ class TTLCache:
     def set(self, key: str, value: Any, ttl_seconds: float) -> None:
         """Set a value in the cache with a TTL.
 
-        Non-positive TTLs are treated as "no caching" (the key is removed).
+        Non-positive or sub-minimum TTLs are treated as "no caching"
+        (the key is removed). TTLs larger than MAX_TTL_SECONDS are capped.
 
         Args:
             key: Cache key.
@@ -67,10 +70,11 @@ class TTLCache:
 
         """
         with self._lock:
-            if ttl_seconds <= 0:
+            if ttl_seconds < MIN_TTL_SECONDS:
                 self._cache.pop(key, None)
                 return
-            self._cache[key] = (value, self._now() + float(ttl_seconds))
+            ttl = min(float(ttl_seconds), float(MAX_TTL_SECONDS))
+            self._cache[key] = (value, self._now() + ttl)
 
     def delete(self, key: str) -> None:
         """Remove a key from the cache.
@@ -120,8 +124,8 @@ class TTLCache:
 _global_cache = TTLCache()
 
 
-def cached_fetch(cache_key: str, ttl_seconds: int) -> Callable[[Callable[[], T]], Callable[[], T | None]]:
-    """Decorator to cache a zero-argument function's result with a TTL.
+def cached_fetch(cache_key: str, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> Callable[[Callable[[], T]], Callable[[], T | None]]:
+    """Cache a zero-argument function's result with a TTL.
 
     Exceptions raised by the wrapped function are swallowed and result in `None`,
     which is not cached. Successful non-None results are cached.
@@ -175,3 +179,6 @@ def delete_cache_key(key: str) -> None:
 def get_cache_size() -> int:
     """Get the current size of the global cache (after pruning)."""
     return _global_cache.size()
+
+
+__all__ = ["TTLCache", "cached_fetch", "clear_cache", "delete_cache_key", "get_cache_size"]

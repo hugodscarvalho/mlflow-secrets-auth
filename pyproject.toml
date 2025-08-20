@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mlflow-secrets-auth"
-version = "0.1.0"
+version = "0.2.0"
 description = "MLflow plugin that injects authentication headers from secret managers"
 authors = ["Hugo Carvalho <hugodanielsilvacarvalho.hc@gmail.com>"]
 license = "Apache-2.0"
@@ -77,6 +77,15 @@ line-length = 88
 target-version = "py311"
 fix = true
 show-fixes = true
+exclude = [
+  ".venv",
+  "build",
+  "dist",
+  ".git",
+  "__pycache__",
+  "migrations",
+  "tests",
+]
 
 [tool.ruff.lint]
 ignore = [
@@ -90,11 +99,13 @@ select = [
   "D","E","F","W","C90","U","ASYNC","T20","COM","EM","ISC","PIE","PT","SIM",
   "TID","ARG","BLE","B","S","C","N","PGH","ERA","PD","RSE","RET","RUF","SLF","FURB"
 ]
-exclude = [".venv","build","dist",".git","__pycache__","migrations"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["T20"]
 "tests/*" = ["S101","S108","ARG001","ARG002","ARG005","PT004"]
+"src/mlflow_secrets_auth/constants.py" = ["S105"]
+"src/mlflow_secrets_auth/messages.py" = ["S105"]
+"src/mlflow_secrets_auth/cli.py" = ["T201"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15
